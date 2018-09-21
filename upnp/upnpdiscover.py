@@ -1,8 +1,9 @@
-#!/usr/bin/env python3
-"""Discover UPnP devices"""
+"""module to discover UPnP devices
 
-# references:
-# [Multicast in Python](https://stackoverflow.com/q/603852/5014688)
+references:
+[Multicast in Python](https://stackoverflow.com/q/603852/5014688)
+[Multicast programming](https://www.tldp.org/HOWTO/Multicast-HOWTO-6.html)
+"""
 
 import socket
 import struct
@@ -30,10 +31,13 @@ class SsdpClass():
             '\r\n'
 
         # Set up UDP socket with timeout and send a M-SEARCH structure
-        # to the upnp multicast address and port
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        # to the upnp multicast address and port.
+        # IP_MULTICAST_LOOP is enabled by default.
+        # IP_MULTICAST_TTL is set to 1 by default.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
+                             socket.IPPROTO_UDP)
         sock.settimeout(timeout)
-        sock.sendto(msg.encode(), (self._MCAST_GRP, self._MCAST_PORT) )
+        sock.sendto(msg.encode(), (self._MCAST_GRP, self._MCAST_PORT))
 
         # print received data within the timeout
         if self._unittest:
@@ -50,12 +54,14 @@ class SsdpClass():
     def listen(self):
         """Passive listen for notifies from devices on the local network"""
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
+                             socket.IPPROTO_UDP)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # use MCAST_GRP instead of '' to listen only to MCAST_GRP,
         # not all groups on MCAST_PORT
         sock.bind(('', self._MCAST_PORT))
-        mreq = struct.pack("4sl", socket.inet_aton(self._MCAST_GRP), socket.INADDR_ANY)
+        mreq = struct.pack("4sl", socket.inet_aton(self._MCAST_GRP),
+                           socket.INADDR_ANY)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         if self._unittest:
             data, addr = sock.recvfrom(4096)
@@ -69,23 +75,27 @@ class SsdpClass():
                 pass
 
 
-# execute this module if it is called stand allone
-if __name__ == "__main__":
+def main():
+    """Discover UPnP devices on the local network"""
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-l", "--listen", action="store_true",
-                        help="passive listen for notifies from devices")
+                       help="passive listen for notifies from devices")
     group.add_argument("-s", "--search", action="store_true",
-                        help="active search for UPnP devices")
+                       help="active search for UPnP devices")
     group.add_argument("-v", "--version", action="store_true",
-                        help="show program version")
+                       help="show program version")
     args = parser.parse_args()
-    oSsdp = SsdpClass()
+    o_ssdp = SsdpClass()
     if args.search:
-        oSsdp.msearch()
+        o_ssdp.msearch()
     elif args.listen:
-        oSsdp.listen()
+        o_ssdp.listen()
     elif args.version:
         print("version 0.0")
     else:
-        oSsdp.msearch()
+        o_ssdp.msearch()
+
+
+if __name__ == '__main__':
+    main()
