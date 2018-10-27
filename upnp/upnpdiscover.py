@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """module to discover UPnP devices
 
 references:
@@ -10,7 +11,7 @@ from time import time
 import argparse
 
 VERSION = '0.1'
-SEARCH_TIMEOUT = 10   # we need this global for unit test
+SEARCH_TIMEOUT = 2   # we need this global for unit test
 
 
 class SSDPdatagram:
@@ -22,32 +23,27 @@ class SSDPdatagram:
     host, unique identifier of the device and some more.
     """
     timestamp = 0
-    ssdp_type = ''   # M-SEARCH, NOTIFY
     addr = ''
-    # this are the needed fields with the same name from the replied datagram
-    usn = ''   # contains also a uuid
-    location = ''
+    uuid = ''
+    #ssdp_type = ''   # M-SEARCH, NOTIFY
+    server = ''
+    #location = ''
 
     _raw_data = None    # raw received datagram
 
     def __init__(self, addr, raw_data):
         """The constructor prepairs raw data representing a SSDP datagram."""
-        self.timestamp = time()
-        self.addr = str(addr).replace(" ", "")
         self._raw_data = raw_data
+        self.timestamp = time()
+        _addr = str(addr).replace("('", "")
+        _addr = _addr.replace("', ", ":")
+        self.addr = _addr.replace(")", "")
         _data = self.data
-        self.usn = _data.partition("USN: ")[2].partition("\r\n")[0]
-        self.location = _data.partition("LOCATION: ")[2].partition("\r\n")[0]
-        self.ssdp_type = _data.partition(" * ")[0]
-
-    def id(self):
-        """This returns the unique id of the datagram.
-
-        The id consists of two parts from the datagram:
-        - the URN consisting a uuid
-        - the LOCATION that points to the SCPD xml file
-        """
-        return(self.usn + ' ' + self.location)
+        #self.usn = _data.partition("USN: ")[2].partition("\r\n")[0]
+        self.uuid = _data.partition("USN: uuid:")[2].partition("::")[0]
+        #self.ssdp_type = _data.partition(" * ")[0]
+        self.server = _data.partition("SERVER: ")[2].partition("\r\n")[0]
+        #self.location = _data.partition("LOCATION: ")[2].partition("\r\n")[0]
 
     @property
     def data(self):
@@ -57,25 +53,22 @@ class SSDPdatagram:
 
 class Mcast:
     """Common class for search and listen multicast packages"""
-    # timeout = 0   no data to get
-    # timeout > 0   get data, value may be used for control
-    timeout = 0
-    open_timestamp = 0
+    _open_timestamp = 0
 
     _MCAST_GRP = '239.255.255.250'
     _MCAST_PORT = 1900
     # If you increase the size of RECVBUF you have more time between
     # 'open' the connection and 'get' its data before buffer overflow
     _RECVBUF = 4096
+    # _timeout = 0   no data to get
+    # _timeout != 0  get data, value may be used for control
+    _timeout = 0
 
     _sock = None
 
 
 class Msearch(Mcast):
     """Class for active searching of devices"""
-
-    _devicelist = []
-    _oDatagram = None
 
     def open(self):
         """Initialize and open a connection and join to the multicast group
@@ -85,14 +78,14 @@ class Msearch(Mcast):
         """
         global SEARCH_TIMEOUT
 
-        self.open_timestamp = time()
-        self.timeout = SEARCH_TIMEOUT
+        self._open_timestamp = time()
+        self._timeout = 1   # SEARCH_TIMEOUT
         _msg = \
             'M-SEARCH * HTTP/1.1\r\n' \
-            'HOST:239.255.255.250:1900\r\n' \
-            'ST:upnp:rootdevice\r\n' \
-            'MX:' + str(self.timeout) + '\r\n' \
-            'MAN:"ssdp:discover"\r\n' \
+            'HOST: 239.255.255.250:1900\r\n' \
+            'MAN: "ssdp:discover"\r\n' \
+            'MX: ' + str(SEARCH_TIMEOUT) + '\r\n' \
+            'ST: upnp:rootdevice\r\n' \
             '\r\n'
 
         # Set up UDP socket with timeout and send a M-SEARCH structure
@@ -101,40 +94,48 @@ class Msearch(Mcast):
         # IP_MULTICAST_TTL is set to 1 by default.
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
                                    socket.IPPROTO_UDP)
-        self._sock.settimeout(self.timeout)
+        self._sock.settimeout(self._timeout)
         self._sock.sendto(_msg.encode(), (self._MCAST_GRP, self._MCAST_PORT))
 
-    def _get_datagram(self):
+    def get(self):
         """Get next SSDP datagram from multicast net within the timeout
 
         This method returns a SSDPdatagram object that represents a received
         SSDP record from an upnp root device on the local netwwork.
         """
-        if self.timeout != 0:
+        if self._timeout == 0:
+            return
+        else:
             try:
                 data, addr = self._sock.recvfrom(self._RECVBUF)
                 if len(data) >= self._RECVBUF:
                     raise SystemExit("ERROR: receive buffer overflow")
-                self._oDatagram = SSDPdatagram(addr, data)
+                return(SSDPdatagram(addr, data))
             except socket.timeout:
-                self.timeout = 0
+                self._timeout = 0
+                return
 
-    def get(self):
-        """Process SSDP datagram object
 
-        If we get replies with same USN (included uuid) and LOCATION we make
-        it unique.
-        """
+class Msearch_device(Msearch):
+    """Search for the next device on the network.
+
+    An active device on the network may response more than one time to improve
+    reliability of stateless multicast. Here we are only intersted in devices,
+    so we make them unique.
+    """
+    _oDatagram = None
+    _device = None
+    _devicelist = []
+
+    def get(self):   # overload get() from parent
         while True:
-            self._get_datagram()
-            # ._get_datagram() waits until it has data received, so if we
-            # return from a timeout exception we have to check timeout
-            if self.timeout == 0:
-                return('')
-            device = self._oDatagram.id()
-            if device not in self._devicelist:
-                self._devicelist.append(device)
-                return(device + '\r\n')
+            _oDatagram = Msearch.get(self)
+            if _oDatagram is None:
+                return
+            _device = _oDatagram.addr + ' uuid:' +_oDatagram.uuid
+            if _device not in self._devicelist:
+                self._devicelist.append(_device)
+                return(_device + ' ' + _oDatagram.server + '\r\n')
 
 
 class Msearch_verbose(Msearch):
@@ -151,8 +152,8 @@ class Listen(Mcast):
     def open(self):
         """Initialize and open a connection and join to the multicast group"""
 
-        self.open_timestamp = time()
-        self.timeout = -1
+        self._open_timestamp = time()
+        self._timeout = -1
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
                                    socket.IPPROTO_UDP)
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -167,21 +168,21 @@ class Listen(Mcast):
 
     def _get_datagram(self):
         """Listen to the next SSDP datagram on the local network"""
-        if self.timeout != 0:
+        if self._timeout != 0:
             try:
                 data, addr = self._sock.recvfrom(self._RECVBUF)
                 if len(data) >= self._RECVBUF:
                     raise SystemExit("ERROR: receive buffer overflow")
                 self._oDatagram = SSDPdatagram(addr, data)
             except KeyboardInterrupt:
-                self.timeout = 0
+                self._timeout = 0
 
     def get(self):
         """Listen for upnp datagrams on the local network."""
         self._get_datagram()
-        if self.timeout == 0:
+        if self._timeout == 0:
             return('')
-        rel_time = self._oDatagram.timestamp - self.open_timestamp
+        rel_time = self._oDatagram.timestamp - self._open_timestamp
         rel_time = "{:09.4f}".format(rel_time)
         device = self._oDatagram.id()
         return(rel_time + ' ' + self._oDatagram.ssdp_type + ' ' +
@@ -201,8 +202,10 @@ def print_all(oMcast):
     given as parameter.
     """
     oMcast.open()
-    while oMcast.timeout != 0:
-        print(oMcast.get(), end='', flush=True)
+    datagram = oMcast.get()
+    while datagram is not None:
+        print(datagram, end='', flush=True)
+        datagram = oMcast.get()
 
 
 def main():
@@ -219,17 +222,17 @@ def main():
                        help="show program version")
     args = parser.parse_args()
     if args.search:
-        print_all(Msearch())
+        print_all(Msearch_device())
     elif args.verbose_search:
         print_all(Msearch_verbose())
     elif args.listen:
         print_all(Listen())
     elif args.version:
         print("version 0.1")
-    elif args.verbose:
+    elif args.verbose_search:
         print("")
     else:
-        msearch()
+        print_all(Msearch_device())
 
 
 if __name__ == '__main__':
