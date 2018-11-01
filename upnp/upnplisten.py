@@ -10,7 +10,7 @@ import struct
 from time import time
 import argparse
 
-VERSION = '0.1'
+BUILD = '1'
 SEARCH_TIMEOUT = 2   # we need this global for unit test
 
 
