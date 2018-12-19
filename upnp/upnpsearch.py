@@ -1,59 +1,12 @@
 #!/usr/bin/env python3
 """Module to search for UPnP devices."""
+
 import socket
-from time import time
 import argparse
+from time import time
 
-BUILD = '1'
-
-
-class SSDPdatagram:
-    """This class represents a SSDP datagram received from a MSEARCH request.
-
-    It contains the raw datagram as received so we can always extract available
-    information. There are also some prepared often used parameter like a
-    timestamp when the datagram was fetched, network address from the sending
-    host, unique identifier of the device and some more.
-    """
-    timestamp = 0
-    uuid = ''
-    ipaddr = ''
-    port = ''
-    server = ''
-
-    _raw_data = None    # raw received datagram
-
-    def __init__(self, arg_addr, arg_raw_data):
-        """The constructor prepairs raw data representing a SSDP datagram."""
-        self._raw_data = arg_raw_data
-        self.timestamp = time()
-        _addr = str(arg_addr).partition("', ")
-        self.ipaddr = _addr[0].replace("('", "")
-        self.port = _addr[2].replace(")", "")
-        _data = self.data
-        self.uuid = _data.partition("USN: uuid:")[2].partition("::")[0]
-        self.server = _data.partition("SERVER: ")[2].partition("\r\n")[0]
-
-    @property
-    def data(self):
-        """This returns the decoded raw data as string so it is printable."""
-        return self._raw_data.decode()
-
-
-class Mcast:
-    """Common class for search and listen multicast packages."""
-    # If you increase the size of RECVBUF you have more time between
-    # 'open' the connection and 'get' its data before buffer overflow
-    RECVBUF = 4096
-    # Response time, also given to the network devices within the request
-    # datagram. Devices on the network must response within this time.
-    # _response_time = 0   no data to get
-    # _response_time != 0  get data, value may be used for control
-    _response_time = 0
-    _MCAST_GRP = '239.255.255.250'
-    _MCAST_PORT = 1900
-
-    _sock = None
+from Common import build
+from upnp.UpnpCommon import SSDPdatagram, Mcast
 
 
 class Msearch(Mcast):
@@ -74,14 +27,14 @@ class Msearch(Mcast):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,
                                    socket.IPPROTO_UDP)
 
-    def request(self, arg_timeout=2):
+    def request(self, ssdp_response_time=2):
         """Request for root devices on the upnp multicast channel.
 
         After 'request' you should 'get' the data as soon as possible to avoid
         buffer overflow.
         """
         self._timestamp_request = time()
-        self._response_time = arg_timeout
+        self._response_time = ssdp_response_time
         _msg = \
             'M-SEARCH * HTTP/1.1\r\n' \
             'HOST: 239.255.255.250:1900\r\n' \
@@ -129,35 +82,16 @@ class MsearchDevice(Msearch):
     time. Most devices will response on every request but we make the responses
     unique. Only the first response is reported.
     """
-    class Device():
-        """Class to store device data and format output."""
-        timestamp = 0
-        request = 0
-        data = None
-        _timestamp_init = 0
-
-        def __init__(self):
-            self._timestamp_init = time()
-
-        def __call__(self):
-            _rel_time = self.timestamp - self._timestamp_init
-            _rel_time = "{:09.4f}".format(_rel_time)
-            if self.request == 0:
-                return _rel_time + 's\r\n'
-            if self.data is None:
-                return _rel_time + 's ' + str(self.request) + '\r\n'
-            return _rel_time + 's ' + str(self.request) + ' ' + self.data
-
-
-    _o_device = None
+    _timestamp_first_request = 0
     _devicelist = []
     _count = -1
+    _retry = 0
     _verbose = False
 
     def __init__(self, verbose=False):
         """Setup verbose output if requested."""
-        self._verbose = verbose
         super().__init__()
+        self._verbose = verbose
 
     def request(self, retries=3):
         """Send a request for upnp root devices.
@@ -165,13 +99,12 @@ class MsearchDevice(Msearch):
         Arguments: retries = number of requests to send
         Returns: None
         """
-        self._o_device = self.Device()
-        self._devicelist = []
         if retries > 0:
+            self._timestamp_first_request = time()
+            self._devicelist = []
             self._count = retries
             super().request()
-            self._o_device.timestamp = time()
-            self._o_device.request = 1
+            self._retry = 1
 
     def get(self):   # overload get() from parent
         """Get the next response from the network.
@@ -187,37 +120,26 @@ class MsearchDevice(Msearch):
             _o_datagram = super().get()
             if _o_datagram is None:
                 self._count -= 1
+                _o_dummy_datagram = SSDPdatagram()
                 if self._count > 0:
                     super().request()
-                    self._o_device.timestamp = time()
-                    self._o_device.request += 1
-                    self._o_device.data = None
+                    self._retry += 1
+                    _o_dummy_datagram.request = self._retry
                     #return _rel_time + 's ' + str(self._retry) + '\r\n'
-                    return self._o_device()
                 else:
                     self._count = -1
-                    self._o_device.timestamp = time()
-                    self._o_device.request = 0
-                    self._o_device.data = None
-                    #return _rel_time + 's\r\n'
-                    return self._o_device()
+                    _o_dummy_datagram.request = 0
+                    #return _rel_time + 's ' + '0' + '\r\n'
+                return _o_dummy_datagram.fdevice(
+                    base_time=self._timestamp_first_request)
             else:
-                _device = _o_datagram.ipaddr + ' uuid:' +_o_datagram.uuid
+                _device = _o_datagram.ipaddr + ' ' +_o_datagram.uuid
                 if _device not in self._devicelist:
                     self._devicelist.append(_device)
-                    self._o_device.timestamp = _o_datagram.timestamp
-                    if self._verbose:
-                        #return _rel_time + 's ' + str(self._retry) + ' ' \
-                        #       + _o_datagram.data
-                        self._o_device.data = _o_datagram.ipaddr + ' ' \
-                                             + _o_datagram.data
-                        return self._o_device()
-                    #return _rel_time + 's ' + str(self._retry) + ' ' \
-                    #       + _device + ' ' + _o_datagram.server + '\r\n'
-                    self._o_device.data = _device + ' ' + _o_datagram.server \
-                                         + '\r\n'
-                    return self._o_device()
-
+                    _o_datagram.request = self._retry
+                    return _o_datagram.fdevice(
+                        base_time=self._timestamp_first_request,
+                        verbose=self._verbose)
 
 def print_it(o_mcast):
     """Search for upnp root devices on the local network and print them.
@@ -226,7 +148,7 @@ def print_it(o_mcast):
     given as argument.
     Arguments: search object
     Returns: None
-    Output: print datagram
+    Output: print datagrams
     """
     o_mcast.request()
     datagram = o_mcast.get()
@@ -237,17 +159,18 @@ def print_it(o_mcast):
 
 def main():
     """This is the entry point of the program and the command line parser"""
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description='Active scan three times for UPnP devices')
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-v", "--verbose", action="store_true",
-                       help="verbose output")
+                       help="verbose active search for UPnP devices")
     group.add_argument("-V", "--version", action="store_true",
                        help="show program version")
     args = parser.parse_args()
     if args.verbose:
         print_it(MsearchDevice(verbose=True))
     elif args.version:
-        print("Build", BUILD)
+        print("Build", build())
     else:
         print_it(MsearchDevice())
 
