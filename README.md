@@ -8,7 +8,7 @@ This is the first stable release just to search and listen on the local network 
 ~$ # Active search for UPnP devices by sending a request (MSEARCH).
 ~$ ./upnpsearch
 
-~$ # Continuing passive listen for notifies (NOTIFY) from UPnP devices, terminating with &lt;ctrl&gt;C.
+~$ # Continuing passive listen for notifies (NOTIFY) from UPnP devices, terminating with <ctrl>C.
 ~$ ./upnplisten
 ```
 ## References:
