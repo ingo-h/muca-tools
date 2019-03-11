@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+"""Program to search for upnp devices."""
+import muca.upnp.Search
+
+muca.upnp.Search.main()

@@ -9,7 +9,7 @@ from unittest import TestCase, mock
 from io import StringIO
 import socket
 
-from upnp.upnplisten import Listen, print_it, socket as upnplisten_socket
+from muca.upnp.Listen import Listen, print_it, socket as upnplisten_socket
 from tests.CommonTest import LDATAGRAM1, LDATAGRAM2, LDATAGRAM3, \
                              LADDR1, LADDR2, LADDR3
 
@@ -39,7 +39,7 @@ class NetSocketTestCase(TestCase):
     """
     def setUp(self):
         """This patches the network socket from upnplisten for all tests."""
-        patcher = mock.patch('upnp.upnplisten.socket.socket')
+        patcher = mock.patch('muca.upnp.Listen.socket.socket')
         self.addCleanup(patcher.stop)
         self.mock_socket = patcher.start()
         self.o_mock_socket = self.mock_socket.return_value

@@ -9,8 +9,8 @@ from unittest import TestCase, mock
 from io import StringIO
 import socket
 
-from upnp.UpnpCommon import SSDPdatagram
-from upnp.upnpsearch import Msearch, MsearchDevice, print_it, \
+from muca.upnp.Common import SSDPdatagram
+from muca.upnp.Search import Msearch, MsearchDevice, print_it, \
                             socket as upnpsearch_sock
 from tests.CommonTest import SDATAGRAM1, SDATAGRAM2, SDATAGRAM3, \
                              SADDR1, SADDR2, SADDR3
@@ -35,7 +35,7 @@ class NetSocketTestCase(TestCase):
     """
     def setUp(self):
         """This patches the network socket from upnpsearch for all tests."""
-        patcher = mock.patch('upnp.upnpsearch.socket.socket')
+        patcher = mock.patch('muca.upnp.Search.socket.socket')
         self.addCleanup(patcher.stop)
         self.mock_socket = patcher.start()
         self.o_mock_socket = self.mock_socket.return_value

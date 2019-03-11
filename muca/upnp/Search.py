@@ -1,12 +1,11 @@
-#!/usr/bin/env python3
 """Module to search for UPnP devices."""
 
 import socket
 import argparse
 from time import time
 
-from Common import build
-from upnp.UpnpCommon import SSDPdatagram, Mcast
+from muca.Common import build
+from muca.upnp.Common import SSDPdatagram, Mcast
 
 
 class Msearch(Mcast):

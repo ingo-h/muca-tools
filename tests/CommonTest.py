@@ -5,7 +5,7 @@ from time import time
 # from pprint import pprint
 # pprint(vars(instance))
 
-from upnp.UpnpCommon import SSDPdatagram
+from muca.upnp.Common import SSDPdatagram
 
 
 # three ssdp datagram from search response as test pattern

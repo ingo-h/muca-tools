@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+"""Program to listen for upnp devices."""
+import muca.upnp.Listen
+
+muca.upnp.Listen.main()
